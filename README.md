@@ -1,6 +1,6 @@
 # Stream Deck Plugin for TP-Link Kasa Switches (+ Desktop Shortcuts)
 
-**Version 0.2.0**
+**Version 0.2.1**
 
 Turn TP-Link Kasa smart switches, plugs, and power-strip outlets on and off from an
 Elgato Stream Deck key — plus optional Windows desktop icons/shortcuts that toggle
