@@ -1,0 +1,47 @@
+{
+	"Name": "Kasa Switch",
+	"Version": "0.2.0.0",
+	"Author": "paul",
+	"Actions": [
+		{
+			"Name": "Kasa Switch",
+			"UUID": "com.caffecter.kasa.switch",
+			"Icon": "imgs/actions/switch/icon",
+			"Tooltip": "Turn a TP-Link Kasa switch or plug on/off.",
+			"PropertyInspectorPath": "ui/kasa-switch.html",
+			"Controllers": [
+				"Keypad"
+			],
+			"States": [
+				{
+					"Image": "imgs/actions/switch/off",
+					"TitleAlignment": "middle"
+				}
+			]
+		}
+	],
+	"Category": "Kasa Switch",
+	"CategoryIcon": "imgs/plugin/category-icon",
+	"CodePath": "bin/plugin.js",
+	"Description": "Turn TP-Link Kasa smart switches and plugs on/off from a Stream Deck key.",
+	"Icon": "imgs/plugin/marketplace",
+	"SDKVersion": 2,
+	"Software": {
+		"MinimumVersion": "6.5"
+	},
+	"OS": [
+		{
+			"Platform": "mac",
+			"MinimumVersion": "12"
+		},
+		{
+			"Platform": "windows",
+			"MinimumVersion": "10"
+		}
+	],
+	"Nodejs": {
+		"Version": "20",
+		"Debug": "enabled"
+	},
+	"UUID": "com.caffecter.kasa"
+}

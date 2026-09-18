@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+
+<head lang="en">
+    <title>Kasa Switch Settings</title>
+    <meta charset="utf-8" />
+    <script src="https://sdpi-components.dev/releases/v4/sdpi-components.js"></script>
+</head>
+
+<body>
+    <!-- Component reference: https://sdpi-components.dev/docs/components -->
+
+    <!--
+        Discover Kasa devices on the LAN. Selecting one fills the Device IP below.
+        The list is populated by the plugin's `getDevices` data source (a TCP
+        sweep of the local subnet), so a scan runs each time this dropdown loads.
+        The scan takes a few seconds; if nothing appears, enter the IP manually.
+
+        NOTE: `placeholder` is sdpi-select's generic "nothing selected" text —
+        it is NOT a scan-result message. This field shares the `host` setting
+        with the Device IP textfield below, so it shows the placeholder
+        whenever the current host doesn't exactly match one of the freshly
+        discovered options, even when the scan found plenty of devices (e.g.
+        the host was typed in manually, or was picked before a rescan). Don't
+        word it as "no devices found" — that's misleading in the common case.
+    -->
+    <sdpi-item label="Discover">
+        <sdpi-select setting="host" datasource="getDevices" loading="Scanning subnet (a few seconds)…"
+            placeholder="Select a discovered device"></sdpi-select>
+    </sdpi-item>
+    <sdpi-item>
+        <span style="font-size: 11px; color: var(--font-color, #969696);">Or type an IP address into Device IP below.</span>
+    </sdpi-item>
+
+    <!-- Manual entry / source of truth. Required. -->
+    <sdpi-item label="Device IP">
+        <sdpi-textfield setting="host" placeholder="e.g. 192.168.1.42" required></sdpi-textfield>
+    </sdpi-item>
+
+    <!-- What a key press does. -->
+    <sdpi-item label="On press">
+        <sdpi-select setting="behavior" default="toggle">
+            <option value="toggle">Toggle</option>
+            <option value="on">Turn On</option>
+            <option value="off">Turn Off</option>
+        </sdpi-select>
+    </sdpi-item>
+
+    <!--
+        Outlet picker for multi-outlet strips (HS107 / HS300). Populated by the
+        `getOutlets` data source for whichever device is selected above; the
+        plugin re-pushes the list whenever the host changes (dependent dropdown).
+        Empty for single switches/plugs — leave it blank there.
+    -->
+    <sdpi-item label="Outlet">
+        <sdpi-select setting="childId" datasource="getOutlets" hot-reload
+            loading="Loading outlets…" placeholder="Not needed for single switches"></sdpi-select>
+    </sdpi-item>
+</body>
+
+</html>
