@@ -1,6 +1,6 @@
 {
     "name": "streamdeck-kasa-plugin",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "Turn TP-Link Kasa smart switches and plugs on/off from a Stream Deck key, plus Windows desktop shortcuts for the same switches.",
     "keywords": [
         "stream-deck",

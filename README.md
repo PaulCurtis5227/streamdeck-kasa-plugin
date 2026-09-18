@@ -115,12 +115,20 @@ powershell -ExecutionPolicy Bypass -File scripts\make-desktop-shortcuts.ps1 -Swi
 ```
 
 Each run creates one `.lnk` per outlet (or one per single switch) on your
-desktop, named for the action a click will take next — e.g. `Fan On.lnk`.
-Clicking it toggles the switch silently (no console window) and renames
-itself to match the new state.
+desktop, named for the action a click will take next — e.g. `Turn Fan On.lnk`.
+Clicking it toggles the switch silently (no console window), renames itself
+to match the new state, and updates its hover-tooltip text to match too
+(e.g. "Fan is ON - click to turn off.").
 
 Re-running the script for the same switches is safe — it looks up each
 outlet's current state and replaces any existing shortcut for it.
+
+**Taskbar pins won't update.** If you pin one of these shortcuts to the
+Windows taskbar, its name/tooltip there is a separate snapshot Windows makes
+at the moment you pin it — Windows itself never refreshes a taskbar pin from
+its source file afterward, so it'll permanently show whatever it said when
+pinned. The desktop icon keeps updating normally either way; this is a
+Windows shell limitation, not something this project can work around.
 
 ## Limitations
 

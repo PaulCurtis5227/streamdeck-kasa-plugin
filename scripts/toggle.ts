@@ -4,8 +4,8 @@
  * Bundled to a standalone `dist/kasa-toggle.mjs` (see rollup.toggle.mjs) so it
  * runs on any Node without TypeScript support and without needing node_modules.
  *
- *   node kasa-toggle.mjs --host 192.168.1.177 --outlet "Speakers"   # toggle
- *   node kasa-toggle.mjs --host 192.168.1.177 --outlet "Alpine" --on
+ *   node kasa-toggle.mjs --host 192.168.1.43 --outlet "Outlet 1"     # toggle
+ *   node kasa-toggle.mjs --host 192.168.1.43 --outlet "Outlet 2" --on
  *   node kasa-toggle.mjs --host 192.168.1.42                        # single plug
  *   ... --dry-run                                                   # read only
  *   ... --dry-run --json                                            # machine-readable status
@@ -14,18 +14,24 @@
  * strip's labels) or directly by `--childId`. Omit both for a single switch.
  *
  * After a real (non-dry-run) toggle, also renames the desktop shortcut that
- * triggered it to reflect the *next* action ("Speakers On"/"Speakers Off") —
- * see {@link renameShortcutForNextAction} — using the manifest that
- * `make-desktop-shortcuts.ps1` writes to `desktop-shortcuts.json` next to this
- * bundle. Missing/moved shortcuts are skipped; a rename failure never fails
- * the toggle itself.
+ * triggered it to reflect the *next* action ("Turn Speakers On"/"Turn Speakers Off") and
+ * updates its hover-tooltip Description to match ("Speakers is ON - click to
+ * turn off.") — see {@link renameShortcutForNextAction} — using the manifest
+ * that `make-desktop-shortcuts.ps1` writes to `desktop-shortcuts.json` next to
+ * this bundle. Missing/moved shortcuts are skipped; a rename/description
+ * failure never fails the toggle itself. (This only keeps the *desktop* icon
+ * live — a copy pinned to the Windows taskbar is a separate, frozen snapshot
+ * Windows makes at pin time, and nothing here can update that.)
  */
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import { apply, getStatus, outletsOf } from "../src/kasa";
+
+const psQuote = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
 const { values } = parseArgs({
 	options: {
@@ -114,16 +120,69 @@ function renameShortcutForNextAction(host: string, outletName: string | undefine
 		return;
 	}
 
-	const nextLabel = `${entry.label} ${on ? "Off" : "On"}`;
+	const nextAction = on ? "Off" : "On";
+	const nextLabel = `Turn ${entry.label} ${nextAction}`;
 	const newPath = path.join(path.dirname(entry.lnkPath), `${nextLabel}.lnk`);
 	if (newPath === entry.lnkPath) {
 		return;
 	}
 	try {
-		fs.renameSync(entry.lnkPath, newPath);
+		renameShellItem(entry.lnkPath, `${nextLabel}.lnk`);
+		// Shell.Application's FolderItem.Name re-appends the extension itself, so
+		// verify the rename actually landed at the plain single-extension path we
+		// expect before trusting it — otherwise updateShortcutDescription below
+		// would call CreateShortcut() on a path nothing exists at, which silently
+		// *creates* a new blank .lnk there instead of erroring.
+		if (!fs.existsSync(newPath)) {
+			throw new Error(`renamed shortcut not found at expected path: ${newPath}`);
+		}
 		entry.lnkPath = newPath;
 		fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 	} catch (err) {
 		console.error(`Could not rename desktop shortcut for "${entry.label}":`, err instanceof Error ? err.message : err);
+		return;
 	}
+
+	const description = `${entry.label} is ${on ? "ON" : "OFF"} - click to turn ${nextAction.toLowerCase()}.`;
+	try {
+		updateShortcutDescription(newPath, description);
+	} catch (err) {
+		console.error(`Could not update tooltip for "${entry.label}":`, err instanceof Error ? err.message : err);
+	}
+}
+
+/**
+ * Rename a file via the Shell.Application COM object (the same mechanism as
+ * an Explorer F2 rename), NOT `fs.renameSync`. A raw filesystem rename isn't
+ * tracked by Explorer's desktop-icon-position cache as "the same icon" — the
+ * live desktop view just sees the old file vanish and a new one appear, and
+ * drops it into the next free grid slot, so every toggle visibly relocates
+ * the icon. A Shell-mediated rename keeps the same shell item identity, so
+ * Explorer preserves its on-screen position across the rename.
+ *
+ * `FolderItem.Name` re-appends the file's real extension no matter what you
+ * assign, regardless of the "hide extensions for known file types" setting —
+ * passing `newName` WITH its `.lnk` extension produces `name.lnk.lnk` on
+ * disk. Assign only the base name and let the shell supply the extension.
+ */
+function renameShellItem(lnkPath: string, newName: string): void {
+	const dir = path.dirname(lnkPath);
+	const oldName = path.basename(lnkPath);
+	const newBaseName = newName.replace(/\.lnk$/i, "");
+	const script = `$s = New-Object -ComObject Shell.Application; $f = $s.Namespace(${psQuote(dir)}); $item = $f.ParseName(${psQuote(oldName)}); if (-not $item) { throw "shell item not found: ${oldName.replace(/"/g, '`"')}" }; $item.Name = ${psQuote(newBaseName)}`;
+	execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { stdio: "ignore" });
+}
+
+/**
+ * Set a `.lnk` file's Description (its Properties "Comment" field, shown as
+ * the file-manager/desktop hover tooltip). Node has no native way to edit an
+ * existing shortcut's binary format, so this shells out to PowerShell's
+ * WScript.Shell COM object — the same mechanism `make-desktop-shortcuts.ps1`
+ * uses to create shortcuts in the first place. This only edits the .lnk's
+ * internal binary contents (not its filename/identity), so unlike a rename
+ * it needs no shell-notification care to keep the desktop icon in place.
+ */
+function updateShortcutDescription(lnkPath: string, description: string): void {
+	const script = `$s = New-Object -ComObject WScript.Shell; $sc = $s.CreateShortcut(${psQuote(lnkPath)}); $sc.Description = ${psQuote(description)}; $sc.Save()`;
+	execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { stdio: "ignore" });
 }

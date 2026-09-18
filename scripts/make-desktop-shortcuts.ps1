@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   Create Windows desktop shortcuts that toggle Kasa outlets (or single switches),
-  named for the action pressing them will take next (e.g. "Fan On" / "Fan Off").
+  named for the action pressing them will take next (e.g. "Turn Fan On" / "Turn Fan Off").
 
 .DESCRIPTION
   Each shortcut launches dist/kasa-toggle.mjs via a hidden VBS wrapper (no console
@@ -11,12 +11,18 @@
   `npm run build:toggle` first so the bundle exists.
 
   Shortcut filenames reflect the action a click will perform next, and are kept
-  in sync by kasa-toggle.mjs itself (it renames its own shortcut after every
-  toggle — see renameShortcutForNextAction in scripts/toggle.ts). This script
-  queries each switch's *current* state up front to pick the right name, and
-  writes dist/desktop-shortcuts.json so the CLI can find (and rename) the right
+  in sync by kasa-toggle.mjs itself (it renames its own shortcut, and updates its
+  hover-tooltip Description to match, after every toggle — see
+  renameShortcutForNextAction in scripts/toggle.ts). This script queries each
+  switch's *current* state up front to pick the right name/description, and
+  writes dist/desktop-shortcuts.json so the CLI can find (and update) the right
   file later. Re-running this script deletes each switch's previous shortcut
   file before creating its (possibly differently-named) replacement.
+
+  Note: this only keeps the *desktop* icon's name/tooltip live. A copy pinned to
+  the Windows taskbar is a separate, frozen snapshot Windows makes at pin time —
+  its label/tooltip will never update, by design of the Windows shell, no matter
+  what this script or the CLI does.
 
 .PARAMETER Switches
   Array of hashtables, one per physical switch:
@@ -96,7 +102,9 @@ foreach ($switch in $Switches) {
     }
 
     $nextAction = if ($status.on) { 'Off' } else { 'On' }
-    $lnk = Join-Path $desktop ("{0} {1}.lnk" -f $label, $nextAction)
+    $lnk = Join-Path $desktop ("Turn {0} {1}.lnk" -f $label, $nextAction)
+    $stateWord = if ($status.on) { 'ON' } else { 'OFF' }
+    $description = "$label is $stateWord - click to turn $($nextAction.ToLowerInvariant())."
 
     if ($previous.ContainsKey($key) -and $previous[$key].lnkPath -ne $lnk -and (Test-Path $previous[$key].lnkPath)) {
       Remove-Item $previous[$key].lnkPath -Force
@@ -107,7 +115,7 @@ foreach ($switch in $Switches) {
     $sc.Arguments = if ($t.Outlet) { '"{0}" "{1}" "{2}"' -f $vbs, $switchHost, $t.Outlet } else { '"{0}" "{1}"' -f $vbs, $switchHost }
     $sc.WorkingDirectory = $proj
     $sc.IconLocation = "$ico,0"
-    $sc.Description = "Toggle Kasa '$label' on $switchHost"
+    $sc.Description = $description
     $sc.WindowStyle = 7
     $sc.Save()
 
