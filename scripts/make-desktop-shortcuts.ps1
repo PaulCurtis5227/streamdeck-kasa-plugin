@@ -1,23 +1,28 @@
 <#
 .SYNOPSIS
-  Create Windows desktop shortcuts that toggle Kasa outlets (or single switches),
-  named for the action pressing them will take next (e.g. "Turn Fan On" / "Turn Fan Off").
+  Create Windows desktop shortcuts that force Kasa outlets (or single switches)
+  on/off, named for the action pressing them will take next (e.g. "Turn Fan On"
+  / "Turn Fan Off").
 
 .DESCRIPTION
   Each shortcut launches dist/kasa-toggle.mjs via a hidden VBS wrapper (no console
   flash) using the system Node at "C:\Program Files\nodejs\node.exe", passing the
-  target host (and outlet name, for strip outlets) as arguments — so one wrapper
-  script can drive any number of switches on any number of hosts. Run
-  `npm run build:toggle` first so the bundle exists.
+  target host, outlet name (for strip outlets), and the explicit on/off action as
+  arguments — so one wrapper script can drive any number of switches on any
+  number of hosts. The click always *forces* the state its label promises
+  (never a plain toggle), so it does the right thing even if the device was
+  switched elsewhere (Stream Deck, the Kasa app, a physical button) since the
+  label was last written. Run `npm run build:toggle` first so the bundle exists.
 
   Shortcut filenames reflect the action a click will perform next, and are kept
   in sync by kasa-toggle.mjs itself (it renames its own shortcut, and updates its
-  hover-tooltip Description to match, after every toggle — see
-  renameShortcutForNextAction in scripts/toggle.ts). This script queries each
-  switch's *current* state up front to pick the right name/description, and
-  writes dist/desktop-shortcuts.json so the CLI can find (and update) the right
-  file later. Re-running this script deletes each switch's previous shortcut
-  file before creating its (possibly differently-named) replacement.
+  target arguments and hover-tooltip Description to match, after every click —
+  see renameShortcutForNextAction in scripts/toggle.ts). This script queries
+  each switch's *current* state up front to pick the right name/description/
+  action, and writes dist/desktop-shortcuts.json so the CLI can find (and
+  update) the right file later. Re-running this script deletes each switch's
+  previous shortcut file before creating its (possibly differently-named)
+  replacement.
 
   Note: this only keeps the *desktop* icon's name/tooltip live. A copy pinned to
   the Windows taskbar is a separate, frozen snapshot Windows makes at pin time —
@@ -112,7 +117,12 @@ foreach ($switch in $Switches) {
 
     $sc = $shell.CreateShortcut($lnk)
     $sc.TargetPath = $wscript
-    $sc.Arguments = if ($t.Outlet) { '"{0}" "{1}" "{2}"' -f $vbs, $switchHost, $t.Outlet } else { '"{0}" "{1}"' -f $vbs, $switchHost }
+    # The 3rd arg is the action a click FORCES ("on"/"off"), not a toggle, so
+    # the shortcut always does what its filename says even if the device's
+    # real state has drifted since this was written (see kasa-toggle.mjs's
+    # renameShortcutForNextAction, which keeps this in sync after every click).
+    $outletArg = if ($t.Outlet) { $t.Outlet } else { '' }
+    $sc.Arguments = '"{0}" "{1}" "{2}" "{3}"' -f $vbs, $switchHost, $outletArg, $nextAction.ToLowerInvariant()
     $sc.WorkingDirectory = $proj
     $sc.IconLocation = "$ico,0"
     $sc.Description = $description

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0
+
+- Desktop shortcuts now force the exact on/off state their filename promises
+  instead of toggling, so a click still does the right thing even if the
+  switch was changed elsewhere (Stream Deck, the Kasa app, a physical button)
+  since the shortcut was last renamed.
+- Fixed a bug (introduced while making the above change) where every click
+  after the first left the shortcut's target arguments malformed, causing
+  Windows Script Host to fail with "There is no script engine for file
+  extension "vbs"." on the next click.
+
 ## 0.2.1
 
 - Desktop shortcut icons are now named for the action a click will take next,

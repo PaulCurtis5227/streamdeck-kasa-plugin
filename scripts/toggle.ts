@@ -13,15 +13,20 @@
  * Target an outlet by name (`--outlet`, matched case-insensitively against the
  * strip's labels) or directly by `--childId`. Omit both for a single switch.
  *
- * After a real (non-dry-run) toggle, also renames the desktop shortcut that
- * triggered it to reflect the *next* action ("Turn Speakers On"/"Turn Speakers Off") and
- * updates its hover-tooltip Description to match ("Speakers is ON - click to
+ * After a real (non-dry-run) toggle, also updates the desktop shortcut that
+ * triggered it so the *next* click forces the opposite state outright (never a
+ * plain toggle) — renaming it ("Turn Speakers On"/"Turn Speakers Off"),
+ * rewriting its target arguments to pass that explicit `--on`/`--off`, and
+ * updating its hover-tooltip Description to match ("Speakers is ON - click to
  * turn off.") — see {@link renameShortcutForNextAction} — using the manifest
  * that `make-desktop-shortcuts.ps1` writes to `desktop-shortcuts.json` next to
- * this bundle. Missing/moved shortcuts are skipped; a rename/description
- * failure never fails the toggle itself. (This only keeps the *desktop* icon
- * live — a copy pinned to the Windows taskbar is a separate, frozen snapshot
- * Windows makes at pin time, and nothing here can update that.)
+ * this bundle. Forcing the state (rather than toggling) is what keeps a click
+ * doing what its label says even if the device was switched elsewhere (Stream
+ * Deck, the Kasa app, a physical button) since the label was last written.
+ * Missing/moved shortcuts are skipped; an update failure never fails the
+ * toggle itself. (This only keeps the *desktop* icon live — a copy pinned to
+ * the Windows taskbar is a separate, frozen snapshot Windows makes at pin
+ * time, and nothing here can update that.)
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -95,14 +100,19 @@ try {
 }
 
 /**
- * Rename the desktop shortcut for `host`/`outletName` (if one is tracked in
- * `desktop-shortcuts.json`) to name it for the action a click will perform
- * next. Silently does nothing if there's no manifest, no entry for this
- * switch, or the file has since been moved/deleted — a stale or missing
- * shortcut must never fail the toggle that already succeeded.
+ * Update the desktop shortcut for `host`/`outletName` (if one is tracked in
+ * `desktop-shortcuts.json`) so a click FORCES the opposite state next time,
+ * never toggles: renames it for that action, rewrites its target arguments to
+ * pass `--on`/`--off` explicitly, and updates its tooltip. Forcing the state
+ * (rather than toggling) is what keeps the shortcut correct even if the
+ * device was switched elsewhere since this last ran. Silently does nothing if
+ * there's no manifest, no entry for this switch, or the file has since been
+ * moved/deleted — a stale or missing shortcut must never fail the toggle that
+ * already succeeded.
  */
 function renameShortcutForNextAction(host: string, outletName: string | undefined, on: boolean): void {
-	const manifestPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "desktop-shortcuts.json");
+	const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+	const manifestPath = path.join(scriptDir, "desktop-shortcuts.json");
 	let manifest: Record<string, { label: string; lnkPath: string }>;
 	try {
 		// Strip a leading BOM: PowerShell's `Set-Content -Encoding utf8` (the only
@@ -123,31 +133,34 @@ function renameShortcutForNextAction(host: string, outletName: string | undefine
 	const nextAction = on ? "Off" : "On";
 	const nextLabel = `Turn ${entry.label} ${nextAction}`;
 	const newPath = path.join(path.dirname(entry.lnkPath), `${nextLabel}.lnk`);
-	if (newPath === entry.lnkPath) {
-		return;
-	}
-	try {
-		renameShellItem(entry.lnkPath, `${nextLabel}.lnk`);
-		// Shell.Application's FolderItem.Name re-appends the extension itself, so
-		// verify the rename actually landed at the plain single-extension path we
-		// expect before trusting it — otherwise updateShortcutDescription below
-		// would call CreateShortcut() on a path nothing exists at, which silently
-		// *creates* a new blank .lnk there instead of erroring.
-		if (!fs.existsSync(newPath)) {
-			throw new Error(`renamed shortcut not found at expected path: ${newPath}`);
+	if (newPath !== entry.lnkPath) {
+		try {
+			renameShellItem(entry.lnkPath, `${nextLabel}.lnk`);
+			// Shell.Application's FolderItem.Name re-appends the extension itself, so
+			// verify the rename actually landed at the plain single-extension path we
+			// expect before trusting it — otherwise updateShortcutTarget below would
+			// call CreateShortcut() on a path nothing exists at, which silently
+			// *creates* a new blank .lnk there instead of erroring.
+			if (!fs.existsSync(newPath)) {
+				throw new Error(`renamed shortcut not found at expected path: ${newPath}`);
+			}
+			entry.lnkPath = newPath;
+			fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+		} catch (err) {
+			console.error(`Could not rename desktop shortcut for "${entry.label}":`, err instanceof Error ? err.message : err);
+			return;
 		}
-		entry.lnkPath = newPath;
-		fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-	} catch (err) {
-		console.error(`Could not rename desktop shortcut for "${entry.label}":`, err instanceof Error ? err.message : err);
-		return;
 	}
 
+	// scripts/launchers/toggle-hidden.vbs, resolved from this bundle's own
+	// location the same way the .vbs resolves the bundle from its own location
+	// (see the file header) — the manifest's `key` already carries host/outlet.
+	const vbsPath = path.join(scriptDir, "..", "scripts", "launchers", "toggle-hidden.vbs");
 	const description = `${entry.label} is ${on ? "ON" : "OFF"} - click to turn ${nextAction.toLowerCase()}.`;
 	try {
-		updateShortcutDescription(newPath, description);
+		updateShortcutTarget(entry.lnkPath, vbsPath, host, outletName ?? "", nextAction.toLowerCase(), description);
 	} catch (err) {
-		console.error(`Could not update tooltip for "${entry.label}":`, err instanceof Error ? err.message : err);
+		console.error(`Could not update desktop shortcut target for "${entry.label}":`, err instanceof Error ? err.message : err);
 	}
 }
 
@@ -174,15 +187,28 @@ function renameShellItem(lnkPath: string, newName: string): void {
 }
 
 /**
- * Set a `.lnk` file's Description (its Properties "Comment" field, shown as
- * the file-manager/desktop hover tooltip). Node has no native way to edit an
+ * Rewrite a `.lnk` file's target Arguments (to force `action` — "on"/"off" —
+ * on the next click instead of toggling) and its Description (the
+ * file-manager/desktop hover tooltip). Node has no native way to edit an
  * existing shortcut's binary format, so this shells out to PowerShell's
  * WScript.Shell COM object — the same mechanism `make-desktop-shortcuts.ps1`
  * uses to create shortcuts in the first place. This only edits the .lnk's
  * internal binary contents (not its filename/identity), so unlike a rename
  * it needs no shell-notification care to keep the desktop icon in place.
  */
-function updateShortcutDescription(lnkPath: string, description: string): void {
-	const script = `$s = New-Object -ComObject WScript.Shell; $sc = $s.CreateShortcut(${psQuote(lnkPath)}); $sc.Description = ${psQuote(description)}; $sc.Save()`;
+function updateShortcutTarget(lnkPath: string, vbsPath: string, host: string, outletName: string, action: string, description: string): void {
+	// Win32 command-line quoting (double quotes) for the shortcut's actual
+	// target Arguments — NOT psQuote, which is for the *outer* PowerShell
+	// -Command string below. These are two different quoting layers: psQuote
+	// wraps a value in single quotes so PowerShell parses it as one literal;
+	// Explorer/CreateProcess's own argv parser only treats double quotes as
+	// special. Using psQuote here previously left literal single-quote
+	// characters in the saved Arguments — wscript.exe then received
+	// `'...toggle-hidden.vbs'` (quotes and all) as its "script path", couldn't
+	// resolve an engine for the mangled extension, and Windows Script Host
+	// popped "There is no script engine for file extension "vbs"." on every
+	// click after the first rename.
+	const args = `"${vbsPath}" "${host}" "${outletName}" "${action}"`;
+	const script = `$s = New-Object -ComObject WScript.Shell; $sc = $s.CreateShortcut(${psQuote(lnkPath)}); $sc.Arguments = ${psQuote(args)}; $sc.Description = ${psQuote(description)}; $sc.Save()`;
 	execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { stdio: "ignore" });
 }
